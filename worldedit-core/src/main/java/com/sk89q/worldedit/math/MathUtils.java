@@ -66,11 +66,10 @@ public final class MathUtils {
                 case 0:
                     return 1.0;
                 case 90:
+                case 270:
                     return 0.0;
                 case 180:
                     return -1.0;
-                case 270:
-                    return 0.0;
                 default:
                     break;
             }
@@ -95,11 +94,10 @@ public final class MathUtils {
             }
             switch (dInt) {
                 case 0:
+                case 180:
                     return 0.0;
                 case 90:
                     return 1.0;
-                case 180:
-                    return 0.0;
                 case 270:
                     return -1.0;
                 default:

@@ -22,8 +22,12 @@ package com.sk89q.worldedit.command.argument;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 import com.sk89q.worldedit.WorldEdit;
+import com.sk89q.worldedit.entity.Player;
 import com.sk89q.worldedit.internal.annotation.Offset;
 import com.sk89q.worldedit.math.BlockVector3;
+import com.sk89q.worldedit.math.MathUtils;
+import com.sk89q.worldedit.math.Vector3;
+import com.sk89q.worldedit.math.transform.AffineTransform;
 import com.sk89q.worldedit.util.formatting.text.Component;
 import com.sk89q.worldedit.util.formatting.text.TextComponent;
 import org.enginehub.piston.CommandManager;
@@ -33,6 +37,7 @@ import org.enginehub.piston.inject.InjectedValueAccess;
 import org.enginehub.piston.inject.Key;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 public class OffsetConverter implements ArgumentConverter<BlockVector3> {
 
@@ -62,6 +67,11 @@ public class OffsetConverter implements ArgumentConverter<BlockVector3> {
 
     @Override
     public List<String> getSuggestions(String input, InjectedValueAccess context) {
+        if (input.startsWith("^") && context.injectedValue(Key.of(Player.class)).isPresent()) {
+            return vectorConverter.getSuggestions(input.substring(1), context).stream()
+                .map(s -> "^" + s)
+                .collect(Collectors.toList());
+        }
         return ImmutableList.copyOf(Iterables.concat(
             directionVectorConverter.getSuggestions(input, context),
             vectorConverter.getSuggestions(input, context)
@@ -70,7 +80,41 @@ public class OffsetConverter implements ArgumentConverter<BlockVector3> {
 
     @Override
     public ConversionResult<BlockVector3> convert(String input, InjectedValueAccess context) {
-        return directionVectorConverter.convert(input, context)
-            .orElse(vectorConverter.convert(input, context));
+        if (input.startsWith("^")) {
+            // Looking at a relative vector.
+            Player player = context.injectedValue(Key.of(Player.class))
+                .orElseThrow(() -> new IllegalStateException("Only a player can use relative offsets"));
+
+            float pitch = player.getLocation().getPitch();
+            float yaw = player.getLocation().getYaw();
+
+            // This math was borrowed from the MC codebase, with some changes made for accuracy
+            double f = MathUtils.dCos(yaw + 90.0);
+            double g = MathUtils.dSin(yaw + 90.0);
+            double j = MathUtils.dCos(-pitch + 90.0);
+            double k = MathUtils.dSin(-pitch + 90.0);
+
+            Vector3 m1 = player.getLocation().getDirection();
+            Vector3 m2 = Vector3.at(f * j, k, g * j);
+            Vector3 m3 = m1.cross(m2).multiply(-1.0D);
+
+            // Create an affine transform of the columns (col4 is empty due to no translation)
+            AffineTransform transform = new AffineTransform(
+                m1.getX(), m2.getX(), m3.getX(), 0,
+                m1.getY(), m2.getY(), m3.getY(), 0,
+                m1.getZ(), m2.getZ(), m3.getZ(), 0
+            );
+
+            return vectorConverter.convert(input.substring(1), context).map(blockVector3s ->
+                blockVector3s.stream().map(vector -> transform
+                    .apply(vector.toVector3())
+                    // This *MUST* be rounded before converting to block points
+                    .round().toBlockPoint()
+                ).collect(Collectors.toList())
+            );
+        } else {
+            return directionVectorConverter.convert(input, context)
+                .orElse(vectorConverter.convert(input, context));
+        }
     }
 }
